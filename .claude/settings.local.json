@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"C:\\\\Users\\\\ADNAN ABBAS\\\\cargo-peak-chatbot-agent\\\\venv\\\\Scripts\\\\pip.exe\" install supabase)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
