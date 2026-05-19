@@ -2,6 +2,7 @@
 Email service using Resend. All methods are async, return bool, and never raise.
 Emails are best-effort: failures are logged but never break the chat flow.
 """
+
 import asyncio
 import resend
 from config import settings
@@ -23,38 +24,71 @@ def _customer_html_wrapper(body_html: str) -> str:
     <div style="background:#f9fafb;padding:20px 24px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;text-align:center;">
       Questions? Email us at
       <a href="mailto:updates@cargopeakuae.com" style="color:#1e40af;">updates@cargopeakuae.com</a>
-      or call <a href="tel:+971576512345" style="color:#1e40af;">+971 57 651 2345</a>
+      or call <a href="tel:+971508819829" style="color:#1e40af;">+971 50 881 9829</a>
     </div>
   </div>
 </body>
 </html>"""
 
 
-def _table_html(data: dict) -> str:
+LEAD_FIELD_LABELS = [
+    ("full_name", "Full Name"),
+    ("email", "Email"),
+    ("phone", "Phone"),
+    ("origin", "Origin"),
+    ("destination", "Destination"),
+    ("service_type", "Service Type"),
+    ("pieces", "Pieces"),
+    ("length_cm", "Length (cm)"),
+    ("width_cm", "Width (cm)"),
+    ("height_cm", "Height (cm)"),
+    ("weight_kg", "Weight (kg)"),
+    ("ready_date", "Ready Date"),
+    ("notes", "Notes"),
+]
+
+APPOINTMENT_FIELD_LABELS = [
+    ("full_name", "Full Name"),
+    ("email", "Email"),
+    ("phone", "Phone"),
+    ("preferred_datetime_iso", "Date & Time"),
+    ("topic", "Topic"),
+]
+
+
+def _table_html(data: dict, kind: str = "lead") -> str:
+    """
+    Render a dict as a styled HTML table.
+    Only shows fields that exist in the labels map AND have a non-empty value.
+    """
+    labels = LEAD_FIELD_LABELS if kind == "lead" else APPOINTMENT_FIELD_LABELS
+
     rows = ""
-    for key, value in data.items():
-        if value is None or value == "":
+    for key, label in labels:
+        value = data.get(key)
+        if value in (None, "", [], 0) and value is not False:
+            # skip empty/None — but keep "0" if you ever need it (unlikely here)
             continue
-        label = key.replace("_", " ").title()
-        rows += (
-            f"<tr>"
-            f"<td style='padding:8px 12px;border-bottom:1px solid #e5e7eb;"
-            f"font-weight:600;white-space:nowrap;color:#374151;'>{label}</td>"
-            f"<td style='padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#111827;'>{value}</td>"
-            f"</tr>"
-        )
-    return (
-        "<table style='border-collapse:collapse;width:100%;font-family:Arial,sans-serif;"
-        "font-size:14px;'>"
-        f"{rows}"
-        "</table>"
-    )
+        rows += f"""
+        <tr>
+          <td style="padding:10px 14px;font-weight:600;color:#555;background:#f3f4f6;border-bottom:1px solid #e5e7eb;width:35%;">{label}</td>
+          <td style="padding:10px 14px;color:#111;border-bottom:1px solid #e5e7eb;">{value}</td>
+        </tr>
+        """
+
+    if not rows:
+        return '<p style="color:#6b7280;font-style:italic;">No additional details captured.</p>'
+
+    return f"""
+    <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+      {rows}
+    </table>
+    """
 
 
 class EmailService:
-    FROM_CUSTOMER = "Cargo Peak <hello@cargopeakuae.com>"
-    FROM_INTERNAL = "CargoBot <bot@cargopeakuae.com>"
-    CC_TEAM = "info@cargopeakuae.com"
+    FROM_CUSTOMER = "Cargo Peak <updates@cargopeakuae.com>"
+    FROM_INTERNAL = "CargoBot <updates@cargopeakuae.com>"
 
     def __init__(self):
         resend.api_key = settings.resend_api_key
@@ -67,6 +101,7 @@ class EmailService:
             print(f"❌ Email send failed ({params.get('subject', '?')}): {e}")
             return False
 
+    ## Customer-facing emails
     async def send_customer_lead_confirmation(self, lead: dict) -> bool:
         name = lead.get("full_name", "there")
         origin = lead.get("origin")
@@ -89,13 +124,14 @@ tailored quote within <strong>1 hour</strong> during business hours
 (Mon–Sat, 9 am – 7 pm GST).</p>
 <p style="margin-top:24px;">Thanks for choosing Cargo Peak — we'll be in touch shortly! 📦</p>
 """
-        return await self._send({
-            "from": self.FROM_CUSTOMER,
-            "to": [lead["email"]],
-            "cc": [self.CC_TEAM],
-            "subject": "We've received your cargo inquiry — Cargo Peak",
-            "html": _customer_html_wrapper(body),
-        })
+        return await self._send(
+            {
+                "from": self.FROM_CUSTOMER,
+                "to": [lead["email"]],
+                "subject": "We've received your cargo inquiry — Cargo Peak",
+                "html": _customer_html_wrapper(body),
+            }
+        )
 
     async def send_customer_appointment_confirmation(self, appt: dict) -> bool:
         name = appt.get("full_name", "there")
@@ -119,55 +155,97 @@ tailored quote within <strong>1 hour</strong> during business hours
 reschedule, just reach out and we'll sort it out quickly.</p>
 <p style="margin-top:24px;">Looking forward to speaking with you! ✅</p>
 """
-        return await self._send({
-            "from": self.FROM_CUSTOMER,
-            "to": [appt["email"]],
-            "cc": [self.CC_TEAM],
-            "subject": "Your consultation is booked — Cargo Peak",
-            "html": _customer_html_wrapper(body),
-        })
+        return await self._send(
+            {
+                "from": self.FROM_CUSTOMER,
+                "to": [appt["email"]],
+                "subject": "Your consultation is booked — Cargo Peak",
+                "html": _customer_html_wrapper(body),
+            }
+        )
 
+    ## Internal-facing emails
     async def send_sales_lead_alert(self, lead: dict) -> bool:
         full_name = lead.get("full_name", "Unknown")
         origin = lead.get("origin") or "N/A"
         destination = lead.get("destination") or "N/A"
+        email = lead.get("email", "")
+        phone = lead.get("phone", "")
 
         html = f"""
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-  <h2 style="color:#111827;margin-bottom:4px;">🚚 New Lead</h2>
-  <p style="color:#6b7280;margin-top:0;font-size:14px;">
-    Submitted via CargoBot — reply to this email to contact the customer directly.
-  </p>
-  {_table_html(lead)}
+<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#111;">
+  <div style="background:#1e40af;color:#fff;padding:18px 24px;border-radius:8px 8px 0 0;">
+    <h2 style="margin:0;">🚚 New Lead from CargoBot</h2>
+    <p style="margin:6px 0 0 0;opacity:0.9;font-size:14px;">
+      Reach out within the hour for best conversion.
+    </p>
+  </div>
+
+  <div style="padding:20px 24px;background:#fff;border:1px solid #e5e7eb;border-top:none;">
+    <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;margin-bottom:20px;border-radius:4px;">
+      <strong>Contact:</strong> {full_name}<br>
+      📧 <a href="mailto:{email}" style="color:#1e40af;text-decoration:none;">{email}</a><br>
+      📞 <a href="tel:{phone}" style="color:#1e40af;text-decoration:none;">{phone}</a>
+    </div>
+
+    <h3 style="margin:0 0 12px 0;color:#1e40af;font-size:16px;">Lead Details</h3>
+    {_table_html(lead, kind="lead")}
+
+    <p style="margin-top:24px;color:#6b7280;font-size:12px;">
+      Captured automatically by the CargoPeak website chatbot.
+      Reply to this email to respond directly to the customer.
+    </p>
+  </div>
 </div>
 """
-        return await self._send({
-            "from": self.FROM_INTERNAL,
-            "to": [settings.sales_email],
-            "reply_to": lead.get("email"),
-            "subject": f"🚚 New lead: {full_name} — {origin} → {destination}",
-            "html": html,
-        })
+
+        return await self._send(
+            {
+                "from": self.FROM_INTERNAL,
+                "to": [settings.sales_email],
+                "reply_to": lead.get("email"),
+                "subject": f"🚚 New lead: {full_name} — {origin} → {destination}",
+                "html": html,
+            }
+        )
 
     async def send_sales_appointment_alert(self, appt: dict) -> bool:
         full_name = appt.get("full_name", "Unknown")
+        email = appt.get("email", "")
+        phone = appt.get("phone", "")
+        when = appt.get("preferred_datetime_iso", "—")
 
         html = f"""
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-  <h2 style="color:#111827;margin-bottom:4px;">📅 Consultation Booked</h2>
-  <p style="color:#6b7280;margin-top:0;font-size:14px;">
-    Booked via CargoBot — reply to contact the customer.
-  </p>
-  {_table_html(appt)}
+<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#111;">
+  <div style="background:#1e40af;color:#fff;padding:18px 24px;border-radius:8px 8px 0 0;">
+    <h2 style="margin:0;">📅 New Consultation Booked</h2>
+    <p style="margin:6px 0 0 0;opacity:0.9;font-size:14px;">
+      Scheduled for {when} — reply to contact the customer.
+    </p>
+  </div>
+
+  <div style="padding:20px 24px;background:#fff;border:1px solid #e5e7eb;border-top:none;">
+    <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;margin-bottom:20px;border-radius:4px;">
+      <strong>Customer:</strong> {full_name}<br>
+      📧 <a href="mailto:{email}" style="color:#1e40af;text-decoration:none;">{email}</a><br>
+      📞 <a href="tel:{phone}" style="color:#1e40af;text-decoration:none;">{phone}</a>
+    </div>
+
+    <h3 style="margin:0 0 12px 0;color:#1e40af;font-size:16px;">Booking Details</h3>
+    {_table_html(appt, kind="appointment")}
+  </div>
 </div>
 """
-        return await self._send({
-            "from": self.FROM_INTERNAL,
-            "to": [settings.sales_email],
-            "reply_to": appt.get("email"),
-            "subject": f"📅 Consultation booked: {full_name}",
-            "html": html,
-        })
+
+        return await self._send(
+            {
+                "from": self.FROM_INTERNAL,
+                "to": [settings.sales_email],
+                "reply_to": appt.get("email"),
+                "subject": f"📅 Consultation booked: {full_name}",
+                "html": html,
+            }
+        )
 
 
 email_service = EmailService()

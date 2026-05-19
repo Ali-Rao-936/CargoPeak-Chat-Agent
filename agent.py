@@ -110,7 +110,7 @@ Canada, Russia — plus other destinations on request.
 
 # Contact info
 - Email: updates@cargopeakuae.com
-- Phone: +971 57 651 2345
+- Phone: +971 50 881 9829
 - Response time: a specialist follows up within 1 hour (business hours)
 
 # 🔴 PRICING RULE (NEVER BREAK)
