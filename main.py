@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
-
+from fastapi.middleware.cors import CORSMiddleware
 import db
 from agent import run_agent
 import traceback
 
-
 # ----- Lifespan: startup / shutdown -----
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,11 +18,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Cargo Peak Chatbot Agent", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # allows OPTIONS preflight + POST
+    allow_headers=["*"],  # allows Content-Type, etc.
+)
+
 
 # ----- Request / response models -----
 
+
 class Message(BaseModel):
-    role: str    # "user" or "assistant"
+    role: str  # "user" or "assistant"
     content: str
 
 
@@ -37,6 +49,7 @@ class ChatResponse(BaseModel):
 
 
 # ----- Routes -----
+
 
 @app.get("/")
 async def root():
@@ -57,16 +70,16 @@ async def db_check():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):
-     try:
+    try:
         msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-        
+
         reply = await run_agent(msgs, body.session_id)
 
         final_messages = msgs + [{"role": "assistant", "content": reply}]
         await db.save_conversation(body.session_id, final_messages)
 
         return ChatResponse(reply=reply, actions=[])
-     except Exception as e:
+    except Exception as e:
         print("=" * 60)
         print(f"❌ ERROR IN /api/chat: {type(e).__name__}: {e}")
         print("=" * 60)
