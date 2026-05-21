@@ -23,6 +23,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://cargo-website-react-qy24k1dzd-ali-rao-936s-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],  # allows OPTIONS preflight + POST
